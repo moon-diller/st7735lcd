@@ -63,10 +63,10 @@ class LcdWrapper:
         # fastest refresh, 6 lines front porch, 3 line back porch
         (_FRMCTR1, b"\x00\x06\x03"),
         (_MADCTL, b"\x08"),  # bottom to top refresh
-        # 1 clk cycle nonoverlap, 2 cycle gate rise, 3 sycle osc equalie,
-        # fix on VTL
+        # # 1 clk cycle nonoverlap, 2 cycle gate rise, 3 sycle osc equalie,
+        # # fix on VTL
         (_DISSET5, b"\x15\x02"),
-        (_INVCTR, b"0x00"),  # line inversion
+        (_INVCTR, b"\x00"),  # line inversion
         (_PWCTR1, b"\x02\x70"),  # GVDD = 4.7V, 1.0uA
         (_PWCTR2, b"\x05"),  # VGH=14.7V, VGL=-7.35V
         (_PWCTR3, b"\x01\x02"),  # Opamp current small, Boost frequency
@@ -81,7 +81,7 @@ class LcdWrapper:
             b"\x08\x14\x08\x1e\x22\x1d\x18\x1e" b"\x18\x1a\x24\x2b\x06\x06\x02\x0f",
         ),
         (_CASET, b"\x00\x02\x00\x81"),  # XSTART = 2, XEND = 129
-        (_RASET, b"\x00\x02\x00\x81"),  # XSTART = 2, XEND = 129
+        (_RASET, b"\x00\x02\x00\xa1"),  # XSTART = 2, XEND = 161
         (_NORON, None),
         (_DISPON, None),
     )  # type: Tuple[Tuple[int, Union[ByteString, None]], ...]
@@ -91,6 +91,8 @@ class LcdWrapper:
     _DECODE_PIXEL = ">BBB"
     _X_START = 0  # pylint: disable=invalid-name
     _Y_START = 0  # pylint: disable=invalid-name
+
+    _RDDPM = const(0x0A)
 
     def __init__(self, spi, width: int, height: int) -> None:
         self._spi = spi
@@ -124,6 +126,9 @@ class LcdWrapper:
         if pixel * rest:
             self._spi.write(None, pixel * rest)
 
+    def fill(self, color: Union[int, Tuple] = 0) -> None:
+        """Fill the whole display with the specified color."""
+        self.fill_rectangle(0, 0, self.width, self.height, color)
 
     def _block(
         self, x0: int, y0: int, x1: int, y1: int, data: Optional[ByteString] = None
@@ -151,7 +156,17 @@ class LcdWrapper:
         """Encode a pixel color into bytes."""
         return struct.pack(self._ENCODE_PIXEL, color)
 
+    def pixel(
+        self, x: int, y: int, color: Optional[Union[int, Tuple]] = None
+    ) -> Optional[int]:
+        """Read or write a pixel at a given position."""
+        if color is None:
+            return self._decode_pixel(self._block(x, y, x, y))  # type: ignore[arg-type]
 
+        if 0 <= x < self.width and 0 <= y < self.height:
+            self._block(x, y, x, y, self._encode_pixel(color))
+        return None
+    
 
 class PinWrapper:
     def __init__(self, pin_id, mode=GPIO.OUT, value=0):
@@ -198,6 +213,7 @@ class SpiWrapper:
         if data is not None:
             self._dc_pin.value = 1
             self._spi_device.writebytes(data)
+        time.sleep(0.005)
     
     def read(self, command: Optional[int] = None, count: int = 0) -> ByteString:
         """SPI read from device with optional command"""
@@ -209,7 +225,7 @@ class SpiWrapper:
             self._spi_device.writebytes(bytearray([command]))
         self._dc_pin.value = 1
         # answer = self._spi_device.readbytes(count)
-        answer = self._spi_device.xfer(bytes(count))
+        answer = self._spi_device.xfer2(bytes(count))
         print(f"data={answer}")
         return answer
 
@@ -225,7 +241,7 @@ if __name__ == "__main__":
 
         spi_dev = spidev.SpiDev()
         spi_dev.open(bus=0, device=0)
-        spi_dev.max_speed_hz = 6000000
+        spi_dev.max_speed_hz = 1000000
         dc_pin = PinWrapper(25)
         rst_pin = PinWrapper(24)
         spi = SpiWrapper(spi_dev, dc_pin, rst_pin)
@@ -238,37 +254,14 @@ if __name__ == "__main__":
         time.sleep(1)
         status_led.value = 1
 
-        
-        # data = 0xdeadbeef.to_bytes(4, 'big')
-        # # wr
-        # spi.write(lcd._COLUMN_SET, lcd._encode_pos(0 + lcd._X_START, 0 + lcd._X_START))
-        # spi.write(lcd._PAGE_SET, lcd._encode_pos(0 + lcd._Y_START, 0 + lcd._Y_START))
-        # spi.write(lcd._RAM_WRITE, data)
-        
-        # # rd
-        # spi.write(lcd._COLUMN_SET, lcd._encode_pos(0 + lcd._X_START, 0 + lcd._X_START))
-        # spi.write(lcd._PAGE_SET, lcd._encode_pos(0 + lcd._Y_START, 0 + lcd._Y_START))
-        # size = struct.calcsize(lcd._DECODE_PIXEL)
-        # res = spi.read(lcd._RAM_READ, 4)
-        
-        
-        # # check
-        # print("wr-rd check passed:", res == data)
-        lcd.fill_rectangle(0, 0, width=128, height=64, color=0x000000ff)
-
+        # lcd.fill_rectangle(0, 0, width=30, height=20 // 3, color=0x7521)
+        lcd.pixel(64, 64, 0x487)
 
         time.sleep(1)
         res = spi.read(LcdWrapper._RDDID, 4)
         spi.write(LcdWrapper._NOP, None)
         print("Display ID:", res)
 
-
-        
-        spi.write(LcdWrapper._DISPOFF, None)
-        spi.write(LcdWrapper._NOP, None)
-        spi.write(LcdWrapper._NOP, None)
-        spi.write(LcdWrapper._NOP, None)
-        spi.write(LcdWrapper._NOP, None)
 
         status_led.value = 0
         spi_dev.close()
