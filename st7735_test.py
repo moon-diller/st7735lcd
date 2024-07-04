@@ -1,6 +1,20 @@
 from typing import Optional, Union, Tuple, List, Any, ByteString
 import struct
 import RPi.GPIO as GPIO
+from PIL import Image, ImageDraw, ImageFont
+import numpy
+
+def image_to_data(image: Image) -> Any:
+    """Generator function to convert a PIL image to 16-bit 565 RGB bytes."""
+    # NumPy is much faster at doing this. NumPy code provided by:
+    # Keith (https://www.blogger.com/profile/02555547344016007163)
+    data = numpy.array(image.convert("RGB")).astype("uint16")
+    color = (
+        ((data[:, :, 0] & 0xF8) << 8)
+        | ((data[:, :, 1] & 0xFC) << 3)
+        | (data[:, :, 2] >> 3)
+    )
+    return numpy.dstack(((color >> 8) & 0xFF, color & 0xFF)).flatten().tolist()
 
 
 class LcdWrapper:
@@ -85,7 +99,7 @@ class LcdWrapper:
         (_NORON, None),
         (_DISPON, None),
     )  # type: Tuple[Tuple[int, Union[ByteString, None]], ...]
-    _ENCODE_PIXEL = ">H"
+    _ENCODE_PIXEL = ">I"
     _ENCODE_POS = ">HH"
     _BUFFER_SIZE = 1024
     _DECODE_PIXEL = ">BBB"
@@ -94,10 +108,23 @@ class LcdWrapper:
 
     _RDDPM = const(0x0A)
 
-    def __init__(self, spi, width: int, height: int) -> None:
+
+    # Colours for convenience
+    _COLOR_BLACK = 0x0000  # 0b 00000 000000 00000
+    _COLOR_BLUE = 0x001F  # 0b 00000 000000 11111
+    _COLOR_GREEN = 0x07E0  # 0b 00000 111111 00000
+    _COLOR_RED = 0xF800  # 0b 11111 000000 00000
+    _COLOR_CYAN = 0x07FF  # 0b 00000 111111 11111
+    _COLOR_MAGENTA = 0xF81F  # 0b 11111 000000 11111
+    _COLOR_YELLOW = 0xFFE0  # 0b 11111 111111 00000
+    _COLOR_WHITE = 0xFFFF  # 0b 11111 111111 11111
+
+
+    def __init__(self, spi, width: int, height: int, rotation:int) -> None:
         self._spi = spi
         self.width = width
         self.height = height
+        self.rotation = rotation
         self._invert = False
         self._offset_left = 0
         self._offset_top = 0
@@ -294,7 +321,34 @@ class LcdWrapper:
         if 0 <= x < self.width and 0 <= y < self.height:
             self._block(x, y, x, y, self._encode_pixel(color))
         return None
+
+    def image(
+        self,
+        img: Image,
+        rotation: Optional[int] = None,
+        x: int = 0,
+        y: int = 0,
+    ) -> None:
+        """Set buffer to value of Python Imaging Library image. The image should
+        be in 1 bit mode and a size not exceeding the display size when drawn at
+        the supplied origin."""
+        if rotation is None:
+            rotation = self.rotation
+        if not img.mode in ("RGB", "RGBA"):
+            raise ValueError("Image must be in mode RGB or RGBA")
+        if rotation not in (0, 90, 180, 270):
+            raise ValueError("Rotation must be 0/90/180/270")
+        if rotation != 0:
+            img = img.rotate(rotation, expand=True)
+        imwidth, imheight = img.size
+        if x + imwidth > self.width or y + imheight > self.height:
+            raise ValueError(f"Image must not exceed dimensions of display ({self.width}x{self.height}).")
+        pixels = bytes(image_to_data(img))
+        self._block(x, y, x + imwidth - 1, y + imheight - 1, pixels)
     
+    def draw_text(self, text:str, size:int, posx:int, posy:int) -> None:
+        self.image(get_text_image(text, size), None, posx, posy)
+
 
 class PinWrapper:
     def __init__(self, pin_id, mode=GPIO.OUT, value=0):
@@ -357,6 +411,23 @@ class SpiWrapper:
         print(f"data={[hex(i) for i in answer]}")
         return answer
 
+
+def get_text_image(text:str, text_size:int):
+    # create an image
+    # out = Image.new("RGB", size=(10+text_size*5, 35), color=(255, 0, 0))
+    out = Image.new("RGB", size=(115, 15), color=(255, 0, 0))
+
+    # get a font
+    fnt = ImageFont.truetype("Pillow/Tests/fonts/FreeMono.ttf", text_size)
+    # get a drawing context
+    d = ImageDraw.Draw(out)
+
+    # draw multiline text
+    d.multiline_text(xy=(0, 0), text=text, font=fnt, fill=(0, 0, 0))
+    return out
+
+
+
 if __name__ == "__main__":
     import time
     import spidev
@@ -382,16 +453,26 @@ if __name__ == "__main__":
         time.sleep(1)
         status_led.value = 1
 
-        lcd.fill(color=0)
-        lcd.fill_rectangle(10, 20, width=30, height=20, color=0x7521)
+        lcd.fill(color=lcd._COLOR_BLACK)
+        # lcd.fill_rectangle(10, 20, width=30, height=20, color=lcd._COLOR_MAGENTA)
+        # lcd.fill_rectangle(50, 80, width=30, height=20, color=lcd._COLOR_CYAN)
         
         # for i in range(64):
-        #     lcd.pixel(i, i, 0x7521)
+        #     lcd.pixel(i, i, color=lcd._COLOR_MAGENTA)
+        #     lcd.pixel(i + 1, i, color=lcd._COLOR_MAGENTA)
+        
+        lcd.image(get_text_image("Hello, World!", 10), None, 10, 15)
 
+        # lcd.fill(color=lcd._COLOR_BLACK)
         time.sleep(1)
         res = spi.read(LcdWrapper._RDDID, 4)
         spi.write(LcdWrapper._NOP, None)
         print("Display ID:", res)
+
+
+        while True:
+            lcd.draw_text(time.ctime(), 10, 0, 0)
+            time.sleep(1)
 
 
         status_led.value = 0
