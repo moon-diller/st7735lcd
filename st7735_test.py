@@ -18,95 +18,65 @@ def image_to_data(image: Image) -> Any:
 
 
 class LcdWrapper:
-    const = lambda x: x
-    _NOP = const(0x00)
-    _SWRESET = const(0x01)
-    _RDDID = const(0x04)
-    _RDDST = const(0x09)
+    _NOP = 0x00
+    _SWRESET = 0x01
+    _RDDID = 0x04
+    _RDDST = 0x09
 
-    _SLPIN = const(0x10)
-    _SLPOUT = const(0x11)
-    _PTLON = const(0x12)
-    _NORON = const(0x13)
+    _SLPIN = 0x10
+    _SLPOUT = 0x11
+    _PTLON = 0x12
+    _NORON = 0x13
 
-    _INVOFF = const(0x20)
-    _INVON = const(0x21)
-    _DISPOFF = const(0x28)
-    _DISPON = const(0x29)
-    _CASET = const(0x2A)
-    _RASET = const(0x2B)
-    _RAMWR = const(0x2C)
-    _RAMRD = const(0x2E)
+    _INVOFF = 0x20
+    _INVON = 0x21
+    _DISPOFF = 0x28
+    _DISPON = 0x29
+    _CASET = 0x2A
+    _RASET = 0x2B
+    _RAMWR = 0x2C
+    _RAMRD = 0x2E
 
-    _PTLAR = const(0x30)
-    _COLMOD = const(0x3A)
-    _MADCTL = const(0x36)
+    _PTLAR = 0x30
+    _COLMOD = 0x3A
+    _MADCTL = 0x36
 
-    _FRMCTR1 = const(0xB1)
-    _FRMCTR2 = const(0xB2)
-    _FRMCTR3 = const(0xB3)
-    _INVCTR = const(0xB4)
-    _DISSET5 = const(0xB6)
+    _FRMCTR1 = 0xB1
+    _FRMCTR2 = 0xB2
+    _FRMCTR3 = 0xB3
+    _INVCTR = 0xB4
+    _DISSET5 = 0xB6
 
-    _PWCTR1 = const(0xC0)
-    _PWCTR2 = const(0xC1)
-    _PWCTR3 = const(0xC2)
-    _PWCTR4 = const(0xC3)
-    _PWCTR5 = const(0xC4)
-    _VMCTR1 = const(0xC5)
+    _PWCTR1 = 0xC0
+    _PWCTR2 = 0xC1
+    _PWCTR3 = 0xC2
+    _PWCTR4 = 0xC3
+    _PWCTR5 = 0xC4
+    _VMCTR1 = 0xC5
 
-    _RDID1 = const(0xDA)
-    _RDID2 = const(0xDB)
-    _RDID3 = const(0xDC)
-    _RDID4 = const(0xDD)
+    _RDID1 = 0xDA
+    _RDID2 = 0xDB
+    _RDID3 = 0xDC
+    _RDID4 = 0xDD
 
-    _PWCTR6 = const(0xFC)
+    _PWCTR6 = 0xFC
 
-    _GMCTRP1 = const(0xE0)
-    _GMCTRN1 = const(0xE1)
+    _GMCTRP1 = 0xE0
+    _GMCTRN1 = 0xE1
 
 
     _COLUMN_SET = _CASET
     _PAGE_SET = _RASET
     _RAM_WRITE = _RAMWR
     _RAM_READ = _RAMRD
-    _INIT = (
-        (_SWRESET, None),
-        (_SLPOUT, None),
-        (_COLMOD, b"\x05"),  # 16bit color
-        # fastest refresh, 6 lines front porch, 3 line back porch
-        (_FRMCTR1, b"\x00\x06\x03"),
-        (_MADCTL, b"\x08"),  # bottom to top refresh
-        # 1 clk cycle nonoverlap, 2 cycle gate rise, 3 sycle osc equalie,
-        # fix on VTL
-        (_DISSET5, b"\x15\x02"),
-        (_INVCTR, b"0x00"),  # line inversion
-        (_PWCTR1, b"\x02\x70"),  # GVDD = 4.7V, 1.0uA
-        (_PWCTR2, b"\x05"),  # VGH=14.7V, VGL=-7.35V
-        (_PWCTR3, b"\x01\x02"),  # Opamp current small, Boost frequency
-        (_VMCTR1, b"\x3c\x38"),  # VCOMH = 4V, VOML = -1.1V
-        (_PWCTR6, b"\x11\x15"),
-        (
-            _GMCTRP1,
-            b"\x09\x16\x09\x20\x21\x1b\x13\x19" b"\x17\x15\x1e\x2b\x04\x05\x02\x0e",
-        ),  # Gamma
-        (
-            _GMCTRN1,
-            b"\x08\x14\x08\x1e\x22\x1d\x18\x1e" b"\x18\x1a\x24\x2b\x06\x06\x02\x0f",
-        ),
-        (_CASET, b"\x00\x02\x00\x81"),  # XSTART = 2, XEND = 129
-        (_RASET, b"\x00\x02\x00\x81"),  # XSTART = 2, XEND = 129
-        (_NORON, None),
-        (_DISPON, None),
-    )  # type: Tuple[Tuple[int, Union[ByteString, None]], ...]
     _ENCODE_PIXEL = ">I"
     _ENCODE_POS = ">HH"
     _BUFFER_SIZE = 1024
     _DECODE_PIXEL = ">BBB"
-    _X_START = 0  # pylint: disable=invalid-name
-    _Y_START = 0  # pylint: disable=invalid-name
+    _X_START = 0
+    _Y_START = 0
 
-    _RDDPM = const(0x0A)
+    _RDDPM = 0x0A
 
 
     # Colours for convenience
@@ -136,48 +106,37 @@ class LcdWrapper:
         #     self._spi.write(command, data, delay=0.1)
         # return
         self._spi.write(command=self._SWRESET)    # Software reset
-        time.sleep(0.150)               # delay 150 ms
+        time.sleep(0.150)                         # delay 150 ms
 
         self._spi.write(command=self._SLPOUT)     # Out of sleep mode
-        time.sleep(0.500)               # delay 500 ms
+        time.sleep(0.500)                         # delay 500 ms
 
-        self._spi.write(command=self._FRMCTR1)    # Frame rate ctrl - normal mode
-        self._spi.write(data=b"\x01")                 # Rate = fosc/(1x2+40) * (LINE+2C+2D)
-        self._spi.write(data=b"\x2C")
-        self._spi.write(data=b"\x2D")
+         # Frame rate ctrl - normal mode
+         # Rate = fosc/(1x2+40) * (LINE+2C+2D)
+        self._spi.write(command=self._FRMCTR1, data=b"\x01\x2C\x2D")
 
-        self._spi.write(command=self._FRMCTR2)    # Frame rate ctrl - idle mode
-        self._spi.write(data=b"\x01")                 # Rate = fosc/(1x2+40) * (LINE+2C+2D)
-        self._spi.write(data=b"\x2C")
-        self._spi.write(data=b"\x2D")
+        # Frame rate ctrl - idle mode
+        # Rate = fosc/(1x2+40) * (LINE+2C+2D)
+        self._spi.write(command=self._FRMCTR2, data=b"\x01\x2C\x2D")    
 
         self._spi.write(command=self._FRMCTR3)    # Frame rate ctrl - partial mode
-        self._spi.write(data=b"\x01")                 # Dot inversion mode
-        self._spi.write(data=b"\x2C")
-        self._spi.write(data=b"\x2D")
-        self._spi.write(data=b"\x01")                 # Line inversion mode
-        self._spi.write(data=b"\x2C")
-        self._spi.write(data=b"\x2D")
+        self._spi.write(data=b"\x01\x2C\x2D")     # Dot inversion mode
+        self._spi.write(data=b"\x01\x2C\x2D")     # Line inversion mode
 
         self._spi.write(command=self._INVCTR)     # Display inversion ctrl
-        self._spi.write(data=b"\x07")                 # No inversion
+        self._spi.write(data=b"\x07")             # No inversion
 
         self._spi.write(command=self._PWCTR1)     # Power control
-        self._spi.write(data=b"\xA2")
-        self._spi.write(data=b"\x02")                 # -4.6V
-        self._spi.write(data=b"\x84")                 # auto mode
+        self._spi.write(data=b"\xA2\x02\x84")     # -4.6V, auto mode
 
         self._spi.write(command=self._PWCTR2)     # Power control
-        self._spi.write(data=b"\x0A")                 # Opamp current small
-        self._spi.write(data=b"\x00")                 # Boost frequency
+        self._spi.write(data=b"\x0A\x00")         # Opamp current small, Boost frequency
 
         self._spi.write(command=self._PWCTR4)     # Power control
-        self._spi.write(data=b"\x8A")                 # BCLK/2, Opamp current small & Medium low
-        self._spi.write(data=b"\x2A")
+        self._spi.write(data=b"\x8A\x2A")         # BCLK/2, Opamp current small & Medium low
 
         self._spi.write(command=self._PWCTR5)     # Power control
-        self._spi.write(data=b"\x8A")
-        self._spi.write(data=b"\xEE")
+        self._spi.write(data=b"\x8A\xEE")
 
         self._spi.write(command=self._VMCTR1)     # Power control
         self._spi.write(data=b"\x0E")
@@ -206,40 +165,13 @@ class LcdWrapper:
         self._spi.write(data=str(self.height + self._offset_top - 1).encode())
 
         self._spi.write(command=self._GMCTRP1)    # Set Gamma
-        self._spi.write(data=b"\x02")
-        self._spi.write(data=b"\x1c")
-        self._spi.write(data=b"\x07")
-        self._spi.write(data=b"\x12")
-        self._spi.write(data=b"\x37")
-        self._spi.write(data=b"\x32")
-        self._spi.write(data=b"\x29")
-        self._spi.write(data=b"\x2d")
-        self._spi.write(data=b"\x29")
-        self._spi.write(data=b"\x25")
-        self._spi.write(data=b"\x2B")
-        self._spi.write(data=b"\x39")
-        self._spi.write(data=b"\x00")
-        self._spi.write(data=b"\x01")
-        self._spi.write(data=b"\x03")
-        self._spi.write(data=b"\x10")
+        self._spi.write(data=b"\x02\x1c\x07\x12\x37\x32\x29\x2d")
+        self._spi.write(data=b"\x29\x25\x2B\x39\x00\x01\x03\x10")
+       
 
         self._spi.write(command=self._GMCTRN1)    # Set Gamma
-        self._spi.write(data=b"\x03")
-        self._spi.write(data=b"\x1d")
-        self._spi.write(data=b"\x07")
-        self._spi.write(data=b"\x06")
-        self._spi.write(data=b"\x2E")
-        self._spi.write(data=b"\x2C")
-        self._spi.write(data=b"\x29")
-        self._spi.write(data=b"\x2D")
-        self._spi.write(data=b"\x2E")
-        self._spi.write(data=b"\x2E")
-        self._spi.write(data=b"\x37")
-        self._spi.write(data=b"\x3F")
-        self._spi.write(data=b"\x00")
-        self._spi.write(data=b"\x00")
-        self._spi.write(data=b"\x02")
-        self._spi.write(data=b"\x10")
+        self._spi.write(data=b"\x03\x1d\x07\x06\x2E\x2C\x29\x2D")
+        self._spi.write(data=b"\x2E\x2E\x37\x3F\x00\x00\x02\x10")
 
         self._spi.write(command=self._NORON)      # Normal display on
         time.sleep(0.10)                # 10 ms
@@ -247,7 +179,7 @@ class LcdWrapper:
         self.display_on()
         time.sleep(0.100)               # 100 ms
 
-        print("initialized")
+        print("lcd: initialized")
 
     def display_off(self):
         self._spi.write(command=self._DISPOFF)
@@ -301,7 +233,6 @@ class LcdWrapper:
         self._spi.write(self._RAM_WRITE, data)
         return None
 
-    # pylint: enable-msg=invalid-name,too-many-arguments
 
     def _encode_pos(self, x: int, y: int) -> bytes:
         """Encode a position into bytes."""
@@ -346,7 +277,8 @@ class LcdWrapper:
         pixels = bytes(image_to_data(img))
         self._block(x, y, x + imwidth - 1, y + imheight - 1, pixels)
     
-    def draw_text(self, text:str, size:int, posx:int, posy:int) -> None:
+    def draw_text(self, text: str, size: int, posx: int, posy: int) -> None:
+        '''Draws text on screen'''
         self.image(get_text_image(text, size), None, posx, posy)
 
 
@@ -445,7 +377,7 @@ if __name__ == "__main__":
         rst_pin = PinWrapper(24)
         spi = SpiWrapper(spi_dev, dc_pin, rst_pin)
 
-        lcd = LcdWrapper(spi, 128, 160)
+        lcd = LcdWrapper(spi, 128, 160, rotation=180)
 
         time.sleep(2)
         status_led.value = 0
@@ -472,7 +404,7 @@ if __name__ == "__main__":
 
         while True:
             lcd.draw_text(time.ctime(), 10, 0, 0)
-            time.sleep(1)
+            time.sleep(0.2)
 
 
         status_led.value = 0
