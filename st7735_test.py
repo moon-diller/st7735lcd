@@ -4,6 +4,11 @@ import RPi.GPIO as GPIO
 from PIL import Image, ImageDraw, ImageFont
 import numpy
 
+def color_int_to_tuple(color: int) -> Tuple[int]:
+    '''Returns 8bit color tuple'''
+    return (color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF
+
+
 def image_to_data(image: Image) -> Any:
     """Generator function to convert a PIL image to 16-bit 565 RGB bytes."""
     # NumPy is much faster at doing this. NumPy code provided by:
@@ -15,6 +20,27 @@ def image_to_data(image: Image) -> Any:
         | (data[:, :, 2] >> 3)
     )
     return numpy.dstack(((color >> 8) & 0xFF, color & 0xFF)).flatten().tolist()
+
+
+def get_text_image(
+    text:str, 
+    text_size:int, 
+    image_size:Tuple[int], 
+    font_color: Tuple[int] = (255, 255, 255),
+    bg_color: Tuple[int] = (0, 0, 0)
+    ) -> Image:
+    '''Returns an image containing printed text'''
+    # create an image
+    out = Image.new("RGB", size=image_size, color=bg_color)
+
+    # get a font
+    fnt = ImageFont.truetype("Pillow/Tests/fonts/FreeMono.ttf", text_size)
+    # get a drawing context
+    d = ImageDraw.Draw(out)
+
+    # draw multiline text
+    d.multiline_text(xy=(0, 0), text=text, font=fnt, fill=font_color)
+    return out
 
 
 class LcdWrapper:
@@ -71,7 +97,7 @@ class LcdWrapper:
     _RAM_READ = _RAMRD
     _ENCODE_PIXEL = ">I"
     _ENCODE_POS = ">HH"
-    _BUFFER_SIZE = 1024
+    _BUFFER_SIZE = 256
     _DECODE_PIXEL = ">BBB"
     _X_START = 0
     _Y_START = 0
@@ -277,9 +303,16 @@ class LcdWrapper:
         pixels = bytes(image_to_data(img))
         self._block(x, y, x + imwidth - 1, y + imheight - 1, pixels)
     
-    def draw_text(self, text: str, size: int, posx: int, posy: int) -> None:
+    def draw_text(self,
+        text: str,
+        text_size: int,
+        image_size: Tuple[int],
+        pos: Tuple[int],
+        font_color: int,
+        bg_color: int
+        ) -> None:
         '''Draws text on screen'''
-        self.image(get_text_image(text, size), None, posx, posy)
+        self.image(get_text_image(text, text_size, image_size, color_int_to_tuple(font_color), color_int_to_tuple(bg_color)), None, pos[0], pos[1])
 
 
 class PinWrapper:
@@ -291,7 +324,7 @@ class PinWrapper:
     
     @property
     def value(self) -> int:
-        """Set the default value"""
+        """Return current pin value"""
         return self._value
 
     @value.setter
@@ -344,26 +377,84 @@ class SpiWrapper:
         return answer
 
 
-def get_text_image(text:str, text_size:int):
-    # create an image
-    # out = Image.new("RGB", size=(10+text_size*5, 35), color=(255, 0, 0))
-    out = Image.new("RGB", size=(115, 15), color=(255, 0, 0))
 
-    # get a font
-    fnt = ImageFont.truetype("Pillow/Tests/fonts/FreeMono.ttf", text_size)
-    # get a drawing context
-    d = ImageDraw.Draw(out)
+class RectWidget:
+    def __init__(self,
+        lcd: LcdWrapper,
+        parent: "Optional[RectWidget]",
+        relx: int,
+        rely: int,
+        width: int,
+        height: int,
+        color: int,
+        ):
 
-    # draw multiline text
-    d.multiline_text(xy=(0, 0), text=text, font=fnt, fill=(0, 0, 0))
-    return out
+        self._parent = parent
+        self._children = []
+        self._lcd = lcd
+        self.color = color
+        self.x0 = (self._parent.x0 if self._parent else 0) + relx
+        self.x1 = self.x0 + width
+        self.y0 = (self._parent.y0 if self._parent else 0) + rely
+        self.y1 = self.y0 + height
+        assert(self.x0 <= self.x1)
+        assert(self.y0 <= self.y1)
+        if self._parent:
+            self._parent.add_child(self)
+        self.need_redraw = True
+    
+    def add_child(self, child: "RectWidget") -> None:
+        self._children.append(child)
+    
+    def draw(self):
+        if self.need_redraw:
+            self._lcd.fill_rectangle(self.x0, self.y0, self.x1, self.y1, self.color)
+            self.need_redraw = False
+        for child in self._children:
+            child.draw()
+
+    def bbox(self) -> Tuple[int]:
+        return (self.x0, self.y0, self.x1, self.y1)
+
+
+class TextLabel(RectWidget):
+    def __init__(
+    self,
+    lcd: LcdWrapper,
+    parent: RectWidget,
+    relx: int,
+    rely: int,
+    width: int,
+    height: int,
+    font_color: int,
+    bg_color: int,
+    text: str = ""
+    ):
+        super().__init__(lcd, parent, relx, rely, width, height, bg_color)
+        self.text = text
+        self._font_color = font_color
+    
+    def draw(self):
+        image_size = (self.x1 - self.x0, self.y1 - self.y0)
+        text_size = image_size[1] - 1
+        self._lcd.draw_text(self.text, text_size, image_size, (self.x0, self.y0), self._font_color, self.color)
+    
+    @property
+    def text(self) -> str:
+        """Return current text"""
+        return self._text
+
+    @text.setter
+    def text(self, value):
+        self._text = value
+        self._need_redraw = True
 
 
 
 if __name__ == "__main__":
     import time
     import spidev
-
+    
     GPIO.setmode(GPIO.BCM)
     status_led = PinWrapper(26)
 
@@ -379,38 +470,35 @@ if __name__ == "__main__":
 
         lcd = LcdWrapper(spi, 128, 160, rotation=180)
 
-        time.sleep(2)
+        time.sleep(1)
         status_led.value = 0
 
-        time.sleep(1)
+        time.sleep(0.5)
         status_led.value = 1
 
-        lcd.fill(color=lcd._COLOR_BLACK)
-        # lcd.fill_rectangle(10, 20, width=30, height=20, color=lcd._COLOR_MAGENTA)
-        # lcd.fill_rectangle(50, 80, width=30, height=20, color=lcd._COLOR_CYAN)
+        lcd.fill(color=lcd._COLOR_BLACK)        
+        lcd.image(get_text_image("Hello, World!", 10, image_size=(115, 15)), None, 10, 15)
+        status_led.value = 0
         
-        # for i in range(64):
-        #     lcd.pixel(i, i, color=lcd._COLOR_MAGENTA)
-        #     lcd.pixel(i + 1, i, color=lcd._COLOR_MAGENTA)
-        
-        lcd.image(get_text_image("Hello, World!", 10), None, 10, 15)
-
-        # lcd.fill(color=lcd._COLOR_BLACK)
-        time.sleep(1)
+        time.sleep(0.2)
         res = spi.read(LcdWrapper._RDDID, 4)
         spi.write(LcdWrapper._NOP, None)
         print("Display ID:", res)
 
-
+        main_widget = RectWidget(lcd, None, 0, 0, lcd.width, lcd.height, lcd._COLOR_BLACK)
+        date_widget = TextLabel(lcd, main_widget, 0, 0, lcd.width, 10, font_color=0xFFFFFF, bg_color=lcd._COLOR_GREEN)
+        text_widget = TextLabel(lcd, main_widget, 0, 145, lcd.width, 10, font_color=0xFFFFFF, bg_color=lcd._COLOR_GREEN, text="Hello, world!")
+        
         while True:
-            lcd.draw_text(time.ctime(), 10, 0, 0)
+            date_widget.text = time.ctime()
+            main_widget.draw()
             time.sleep(0.2)
 
 
         status_led.value = 0
         spi_dev.close()
         GPIO.cleanup()
-    except Exception as e:
+    except KeyboardInterrupt as e:
         print("Releasing resources... and rethrow exception")
         status_led.value = 0
         GPIO.cleanup()
