@@ -182,9 +182,10 @@ if __name__ == "__main__":
         spi_dev.max_speed_hz = 1000000
         dc_pin = st7735lcd.PinWrapper(25)
         rst_pin = st7735lcd.PinWrapper(24)
-        spi = st7735lcd.SpiWrapper(spi_dev, dc_pin, rst_pin)
+        spi_logger = st7735lcd.Logger("spi", verbosity=st7735lcd.Logger.Verbosity.MED)
+        spi = st7735lcd.SpiWrapper(spi_dev, dc_pin, rst_pin, logger=spi_logger)
 
-        lcd = st7735lcd.LcdWrapper(spi, 128, 160, rotation=180)
+        lcd = st7735lcd.LcdWrapper(spi, 128, 160, rotation=180, logger=st7735lcd.Logger("lcd"))
 
         time.sleep(1)
         status_led.value = 0

@@ -4,6 +4,129 @@ import RPi.GPIO as GPIO
 from PIL import Image, ImageDraw, ImageFont
 import numpy
 import time
+from enum import Enum
+
+
+class Logger:
+    class Verbosity(Enum):
+        MIN = 1
+        MED = 2
+        MAX = 3
+
+    def __init__(self, prefix: str, verbosity: "Logger.Verbosity" = Verbosity.MIN) -> None:
+        self._verbosity = verbosity
+        self._prefix = prefix
+    
+    @property
+    def verbosity(self) -> "Logger.Verbosity":
+        """Return current verbosity"""
+        return self._verbosity
+
+    @verbosity.setter
+    def verbosity(self, verbosity: "Logger.Verbosity") -> None:
+        '''Changes logger min verbosity level'''
+        self._verbosity = verbosity
+
+    def info(self, *args, **kwargs) -> None:
+        '''Logging an info message taking into account provided verbosity level'''
+        message_verbosity = kwargs.pop('verbosity', Logger.Verbosity.MIN)
+        if message_verbosity.value >= self._verbosity.value:
+            if kwargs.pop('no_prefix', False):
+                print(*args, **kwargs)
+            else:
+                print(f"{self._prefix} info: ", *args, **kwargs)
+
+    def warning(self, *args, **kwargs) -> None:
+        '''Logging a warning message'''
+        pass
+    
+    def fatal(self, *args, **kwargs) -> None:
+        '''Logging a fatal message'''
+        pass
+
+
+
+class PinWrapper:
+    def __init__(self, pin_id, mode=GPIO.OUT, value=0):
+        self._pin_id = pin_id
+        self._mode = mode
+        GPIO.setup(self._pin_id, self._mode)
+        self._value = value
+    
+    @property
+    def value(self) -> int:
+        """Return current pin value"""
+        return self._value
+
+    @value.setter
+    def value(self, val: int) -> None:
+        self._value = val
+        GPIO.output(self._pin_id, GPIO.HIGH if self._value else GPIO.LOW)
+
+
+class SpiWrapper:
+    def __init__(self, spi_device, dc_pin: PinWrapper, rst_pin: PinWrapper, logger: Logger):
+        self._spi_device = spi_device
+        self._dc_pin = dc_pin
+        self._rst_pin = rst_pin
+        self._logger = logger
+        self.reset()
+
+    def reset(self) -> None:
+        """Reset the device"""
+        if not self._rst_pin:
+            raise RuntimeError("a reset pin was not provided")
+        self._rst_pin.value = 0
+        time.sleep(0.050)  # 50 milliseconds
+        self._rst_pin.value = 1
+        time.sleep(0.050)  # 50 milliseconds
+
+    def write(
+        self, command: int | None = None, data: ByteString | None = None, delay: float | None = None
+    ) -> None:
+        """SPI write to the device: commands and data"""
+        # self.write(command, data)
+        self._logger.info(f"wr: commmand={command if command else 0:02x}, data={[hex(i) for i in data] if data else None}")
+        if command is not None:
+            self._dc_pin.value = 0
+            self._spi_device.writebytes(bytearray([command]))
+        if data is not None:
+            self._dc_pin.value = 1
+            self._spi_device.writebytes(data)
+        if delay: time.sleep(delay)
+    
+    def read(self, command: int | None = None, count: int = 0) -> ByteString:
+        """SPI read from device with optional command"""
+        answer = bytearray(count)
+        self._logger.info(f"rd: commmand={command if command else 0:02x}, ", end='')
+
+        if command is not None:
+            self._dc_pin.value = 0
+            self._spi_device.writebytes(bytearray([command]))
+        self._dc_pin.value = 1
+        # answer = self._spi_device.readbytes(count)
+        answer = self._spi_device.xfer2(bytes(count))
+        self._logger.info(f"data={[hex(i) for i in answer]}", no_prefix=True)
+        return answer
+
+def color565(
+    r: Union[int, Tuple[int, int, int], List[int]],
+    g: Optional[int] = 0,
+    b: Optional[int] = 0,
+) -> int:
+    """Convert red, green and blue values (0-255) into a 16-bit 565 encoding.  As
+    a convenience this is also available in the parent adafruit_rgb_display
+    package namespace."""
+    if isinstance(r, (tuple, list)):  # see if the first var is a tuple/list
+        if len(r) >= 3:
+            red, g, b = r[0:3]
+        else:
+            raise ValueError(
+                "Not enough values to unpack (expected 3, got %d)" % len(r)
+            )
+    else:
+        red = r
+    return (red & 0xF8) << 8 | (g & 0xFC) << 3 | b >> 3
 
 def color_int_to_tuple(color: int) -> Tuple[int, int, int]:
     '''Returns 8bit color tuple'''
@@ -42,6 +165,7 @@ def get_text_image(
     # draw multiline text
     d.multiline_text(xy=(0, 0), text=text, font=fnt, fill=font_color)
     return out
+
 
 
 class LcdWrapper:
@@ -117,11 +241,12 @@ class LcdWrapper:
     _COLOR_WHITE = 0xFFFF  # 0b 11111 111111 11111
 
 
-    def __init__(self, spi, width: int, height: int, rotation:int) -> None:
+    def __init__(self, spi: SpiWrapper, width: int, height: int, rotation: int, logger: Logger) -> None:
         self._spi = spi
         self.width = width
         self.height = height
         self.rotation = rotation
+        self._logger = logger
         self._invert = False
         self._offset_left = 0
         self._offset_top = 0
@@ -206,7 +331,7 @@ class LcdWrapper:
         self.display_on()
         time.sleep(0.100)               # 100 ms
 
-        print("lcd: initialized")
+        self._logger.info("initialized", verbosity=Logger.Verbosity.MED)
 
     def display_off(self):
         self._spi.write(command=self._DISPOFF)
@@ -225,7 +350,7 @@ class LcdWrapper:
     ) -> None:
         """Draw a rectangle at specified position with specified width and
         height, and fill it with the specified color."""
-        print(f"lcd rect: {x},{y},{x+width},{y+height}")
+        self._logger.info(f"rect: {x},{y},{x+width},{y+height}")
         x = min(self.width - 1, max(0, x))
         y = min(self.height - 1, max(0, y))
         width = min(self.width - x, max(1, width))
@@ -245,8 +370,8 @@ class LcdWrapper:
         self.fill_rectangle(0, 0, self.width, self.height, color)
 
     def _block(
-        self, x0: int, y0: int, x1: int, y1: int, data: Optional[ByteString] = None
-    ) -> Optional[ByteString]:
+        self, x0: int, y0: int, x1: int, y1: int, data: ByteString | None = None
+    ) -> ByteString | None:
         """Read or write a block of data."""
         self._spi.write(
             self._COLUMN_SET, self._encode_pos(x0 + self._X_START, x1 + self._X_START)
@@ -256,7 +381,7 @@ class LcdWrapper:
         )
         if data is None:
             size = struct.calcsize(self._DECODE_PIXEL)
-            return self._spi.read(self._RAM_READ, (x1 - x0 + 1) * (y1 - y0 + 1) * size)
+            return bytes(self._spi.read(self._RAM_READ, (x1 - x0 + 1) * (y1 - y0 + 1) * size))
         self._spi.write(self._RAM_WRITE, data)
         return None
 
@@ -269,9 +394,13 @@ class LcdWrapper:
         """Encode a pixel color into bytes."""
         return struct.pack(self._ENCODE_PIXEL, color)
 
+    def _decode_pixel(self, data: Union[bytes, Union[bytearray, memoryview]]) -> int:
+        """Decode bytes into a pixel color."""
+        return color565(*struct.unpack(self._DECODE_PIXEL, data))
+
     def pixel(
-        self, x: int, y: int, color: Optional[Union[int, Tuple]] = None
-    ) -> Optional[int]:
+        self, x: int, y: int, color: Union[int, Tuple] | None = None
+    ) -> int | None:
         """Read or write a pixel at a given position."""
         if color is None:
             return self._decode_pixel(self._block(x, y, x, y))  # type: ignore[arg-type]
@@ -283,7 +412,7 @@ class LcdWrapper:
     def image(
         self,
         img: Image,
-        rotation: Optional[int] = None,
+        rotation: int | None = None,
         x: int = 0,
         y: int = 0,
     ) -> None:
@@ -314,68 +443,6 @@ class LcdWrapper:
         ) -> None:
         '''Draws text on screen'''
         self.image(get_text_image(text, text_size, image_size, color_int_to_tuple(font_color), color_int_to_tuple(bg_color)), None, pos[0], pos[1])
-
-
-class PinWrapper:
-    def __init__(self, pin_id, mode=GPIO.OUT, value=0):
-        self._pin_id = pin_id
-        self._mode = mode
-        GPIO.setup(self._pin_id, self._mode)
-        self._value = value
-    
-    @property
-    def value(self) -> int:
-        """Return current pin value"""
-        return self._value
-
-    @value.setter
-    def value(self, val: int) -> None:
-        self._value = val
-        GPIO.output(self._pin_id, GPIO.HIGH if self._value else GPIO.LOW)
-
-class SpiWrapper:
-    def __init__(self, spi_device, dc_pin, rst_pin):
-        self._spi_device = spi_device
-        self._dc_pin = dc_pin
-        self._rst_pin = rst_pin
-        self.reset()
-
-    def reset(self) -> None:
-        """Reset the device"""
-        if not self._rst_pin:
-            raise RuntimeError("a reset pin was not provided")
-        self._rst_pin.value = 0
-        time.sleep(0.050)  # 50 milliseconds
-        self._rst_pin.value = 1
-        time.sleep(0.050)  # 50 milliseconds
-
-    def write(
-        self, command: Optional[int] = None, data: Optional[ByteString] = None, delay: Optional[float] = None
-    ) -> None:
-        """SPI write to the device: commands and data"""
-        # self.write(command, data)
-        print(f"spi wr: commmand={command if command else 0:02x}, data={[hex(i) for i in data] if data else None}")
-        if command is not None:
-            self._dc_pin.value = 0
-            self._spi_device.writebytes(bytearray([command]))
-        if data is not None:
-            self._dc_pin.value = 1
-            self._spi_device.writebytes(data)
-        if delay: time.sleep(delay)
-    
-    def read(self, command: Optional[int] = None, count: int = 0) -> ByteString:
-        """SPI read from device with optional command"""
-        answer = bytearray(count)
-        print(f"spi rd: commmand={command if command else 0:02x}, ", end='')
-
-        if command is not None:
-            self._dc_pin.value = 0
-            self._spi_device.writebytes(bytearray([command]))
-        self._dc_pin.value = 1
-        # answer = self._spi_device.readbytes(count)
-        answer = self._spi_device.xfer2(bytes(count))
-        print(f"data={[hex(i) for i in answer]}")
-        return answer
 
 
 
