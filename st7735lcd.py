@@ -38,18 +38,17 @@ class Logger:
 
     def warning(self, *args, **kwargs) -> None:
         '''Logging a warning message'''
-        pass
+        raise RuntimeError("Not implemented")
     
     def fatal(self, *args, **kwargs) -> None:
         '''Logging a fatal message'''
-        pass
+        raise RuntimeError("Not implemented")
 
 
-
-class PinWrapper:
-    def __init__(self, pin_id, mode=GPIO.OUT, value=0):
+class OutPinWrapper:
+    def __init__(self, pin_id, value=0):
         self._pin_id = pin_id
-        self._mode = mode
+        self._mode = GPIO.OUT
         GPIO.setup(self._pin_id, self._mode)
         self._value = value
     
@@ -65,7 +64,7 @@ class PinWrapper:
 
 
 class SpiWrapper:
-    def __init__(self, spi_device, dc_pin: PinWrapper, rst_pin: PinWrapper, logger: Logger):
+    def __init__(self, spi_device, dc_pin: OutPinWrapper, rst_pin: OutPinWrapper, logger: Logger):
         self._spi_device = spi_device
         self._dc_pin = dc_pin
         self._rst_pin = rst_pin
@@ -75,17 +74,16 @@ class SpiWrapper:
     def reset(self) -> None:
         """Reset the device"""
         if not self._rst_pin:
-            raise RuntimeError("a reset pin was not provided")
+            raise RuntimeError("Reset pin was not provided")
         self._rst_pin.value = 0
         time.sleep(0.050)  # 50 milliseconds
         self._rst_pin.value = 1
         time.sleep(0.050)  # 50 milliseconds
 
     def write(
-        self, command: int | None = None, data: ByteString | None = None, delay: float | None = None
+        self, command: Optional[int] = None, data: Optional[ByteString] = None
     ) -> None:
-        """SPI write to the device: commands and data"""
-        # self.write(command, data)
+        """SPI write to the device: commands and data. Arg data should be either None or non-empty byte string"""
         self._logger.info(f"wr: commmand={command if command else 0:02x}, data={[hex(i) for i in data] if data else None}")
         if command is not None:
             self._dc_pin.value = 0
@@ -93,9 +91,8 @@ class SpiWrapper:
         if data is not None:
             self._dc_pin.value = 1
             self._spi_device.writebytes(data)
-        if delay: time.sleep(delay)
     
-    def read(self, command: int | None = None, count: int = 0) -> ByteString:
+    def read(self, command: Optional[int] = None, count: int = 0) -> ByteString:
         """SPI read from device with optional command"""
         answer = bytearray(count)
         self._logger.info(f"rd: commmand={command if command else 0:02x}, ", end='')
@@ -105,7 +102,7 @@ class SpiWrapper:
             self._spi_device.writebytes(bytearray([command]))
         self._dc_pin.value = 1
         # answer = self._spi_device.readbytes(count)
-        answer = self._spi_device.xfer2(bytes(count))
+        answer = bytes(self._spi_device.xfer2(bytes(count)))
         self._logger.info(f"data={[hex(i) for i in answer]}", no_prefix=True)
         return answer
 
@@ -114,9 +111,7 @@ def color565(
     g: Optional[int] = 0,
     b: Optional[int] = 0,
 ) -> int:
-    """Convert red, green and blue values (0-255) into a 16-bit 565 encoding.  As
-    a convenience this is also available in the parent adafruit_rgb_display
-    package namespace."""
+    """Convert red, green and blue values (0-255) into a 16-bit 565 encoding"""
     if isinstance(r, (tuple, list)):  # see if the first var is a tuple/list
         if len(r) >= 3:
             red, g, b = r[0:3]
@@ -129,8 +124,11 @@ def color565(
     return (red & 0xF8) << 8 | (g & 0xFC) << 3 | b >> 3
 
 def color_int_to_tuple(color: int) -> Tuple[int, int, int]:
-    '''Returns 8bit color tuple'''
-    return (color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF
+    '''Returns 8bit color tuple from 16bit RGB565 int by left shift and last bit copy'''
+    r = ((color >> 11) & 0x1F) << 3 | ((color >> 11) & 0x1 << 2) | ((color >> 11) & 0x1 << 1) | ((color >> 11) & 0x1)
+    g = (((color >> 5) & 0x3F) << 2) | (((color >> 5) & 0x1) << 1) | ((color >> 5) & 0x1)
+    b = ((color & 0x1F) << 3) | ((color & 0x1) << 2) | ((color & 0x1) << 1) | (color & 0x1)
+    return r, g, b
 
 
 def image_to_data(image: Image) -> Any:
@@ -149,9 +147,9 @@ def image_to_data(image: Image) -> Any:
 def get_text_image(
     text:str, 
     text_size:int, 
-    image_size:Tuple[int], 
-    font_color: Tuple[int] = (255, 255, 255),
-    bg_color: Tuple[int] = (0, 0, 0)
+    image_size:Tuple[int, int], 
+    font_color: Tuple[int, int, int] = (255, 255, 255),
+    bg_color: Tuple[int, int, int] = (0, 0, 0)
     ) -> Image:
     '''Returns an image containing printed text'''
     # create an image
@@ -220,7 +218,7 @@ class LcdWrapper:
     _PAGE_SET = _RASET
     _RAM_WRITE = _RAMWR
     _RAM_READ = _RAMRD
-    _ENCODE_PIXEL = ">I"
+    _ENCODE_PIXEL = ">H"
     _ENCODE_POS = ">HH"
     _BUFFER_SIZE = 256
     _DECODE_PIXEL = ">BBB"
@@ -230,16 +228,15 @@ class LcdWrapper:
     _RDDPM = 0x0A
 
 
-    # Colours for convenience
-    _COLOR_BLACK = 0x0000  # 0b 00000 000000 00000
-    _COLOR_BLUE = 0x001F  # 0b 00000 000000 11111
-    _COLOR_GREEN = 0x07E0  # 0b 00000 111111 00000
-    _COLOR_RED = 0xF800  # 0b 11111 000000 00000
-    _COLOR_CYAN = 0x07FF  # 0b 00000 111111 11111
-    _COLOR_MAGENTA = 0xF81F  # 0b 11111 000000 11111
-    _COLOR_YELLOW = 0xFFE0  # 0b 11111 111111 00000
-    _COLOR_WHITE = 0xFFFF  # 0b 11111 111111 11111
-
+    # Colors
+    COLOR_BLACK = 0x0000  # 0b 00000 000000 00000
+    COLOR_BLUE = 0x001F  # 0b 00000 000000 11111
+    COLOR_GREEN = 0x07E0  # 0b 00000 111111 00000
+    COLOR_RED = 0xF800  # 0b 11111 000000 00000
+    COLOR_CYAN = 0x07FF  # 0b 00000 111111 11111
+    COLOR_MAGENTA = 0xF81F  # 0b 11111 000000 11111
+    COLOR_YELLOW = 0xFFE0  # 0b 11111 111111 00000
+    COLOR_WHITE = 0xFFFF  # 0b 11111 111111 11111
 
     def __init__(self, spi: SpiWrapper, width: int, height: int, rotation: int, logger: Logger) -> None:
         self._spi = spi
@@ -254,17 +251,14 @@ class LcdWrapper:
 
     def init(self) -> None:
         """Run the initialization commands."""
-        # for command, data in self._INIT:
-        #     self._spi.write(command, data, delay=0.1)
-        # return
         self._spi.write(command=self._SWRESET)    # Software reset
         time.sleep(0.150)                         # delay 150 ms
 
         self._spi.write(command=self._SLPOUT)     # Out of sleep mode
         time.sleep(0.500)                         # delay 500 ms
 
-         # Frame rate ctrl - normal mode
-         # Rate = fosc/(1x2+40) * (LINE+2C+2D)
+        # Frame rate ctrl - normal mode
+        # Rate = fosc/(1x2+40) * (LINE+2C+2D)
         self._spi.write(command=self._FRMCTR1, data=b"\x01\x2C\x2D")
 
         # Frame rate ctrl - idle mode
@@ -319,17 +313,16 @@ class LcdWrapper:
         self._spi.write(command=self._GMCTRP1)    # Set Gamma
         self._spi.write(data=b"\x02\x1c\x07\x12\x37\x32\x29\x2d")
         self._spi.write(data=b"\x29\x25\x2B\x39\x00\x01\x03\x10")
-       
 
         self._spi.write(command=self._GMCTRN1)    # Set Gamma
         self._spi.write(data=b"\x03\x1d\x07\x06\x2E\x2C\x29\x2D")
         self._spi.write(data=b"\x2E\x2E\x37\x3F\x00\x00\x02\x10")
 
         self._spi.write(command=self._NORON)      # Normal display on
-        time.sleep(0.10)                # 10 ms
+        time.sleep(0.1)
 
         self.display_on()
-        time.sleep(0.100)               # 100 ms
+        time.sleep(0.1)
 
         self._logger.info("initialized", verbosity=Logger.Verbosity.MED)
 
@@ -345,6 +338,10 @@ class LcdWrapper:
     def wake(self):
         self._spi.write(command=self._SLPOUT)
 
+    def dev_id(self) -> int:
+        devid_bytes = self._spi.read(self._RDDID, 4)
+        return struct.unpack(">I", devid_bytes)[0]
+
     def fill_rectangle(
         self, x: int, y: int, width: int, height: int, color: Union[int, Tuple]
     ) -> None:
@@ -355,14 +352,15 @@ class LcdWrapper:
         y = min(self.height - 1, max(0, y))
         width = min(self.width - x, max(1, width))
         height = min(self.height - y, max(1, height))
-        self._block(x, y, x + width - 1, y + height - 1, b"0")
+        self._block(x, y, x + width - 1, y + height - 1, b"")
         chunks, rest = divmod(width * height, self._BUFFER_SIZE)
         pixel = self._encode_pixel(color)
+        
         if chunks:
             data = pixel * self._BUFFER_SIZE
             for _ in range(chunks):
                 self._spi.write(None, data)
-        if pixel * rest:
+        if rest:
             self._spi.write(None, pixel * rest)
 
     def fill(self, color: Union[int, Tuple] = 0) -> None:
@@ -370,8 +368,8 @@ class LcdWrapper:
         self.fill_rectangle(0, 0, self.width, self.height, color)
 
     def _block(
-        self, x0: int, y0: int, x1: int, y1: int, data: ByteString | None = None
-    ) -> ByteString | None:
+        self, x0: int, y0: int, x1: int, y1: int, data: Optional[ByteString] = None
+    ) -> Optional[ByteString]:
         """Read or write a block of data."""
         self._spi.write(
             self._COLUMN_SET, self._encode_pos(x0 + self._X_START, x1 + self._X_START)
@@ -381,8 +379,8 @@ class LcdWrapper:
         )
         if data is None:
             size = struct.calcsize(self._DECODE_PIXEL)
-            return bytes(self._spi.read(self._RAM_READ, (x1 - x0 + 1) * (y1 - y0 + 1) * size))
-        self._spi.write(self._RAM_WRITE, data)
+            return self._spi.read(self._RAM_READ, (x1 - x0 + 1) * (y1 - y0 + 1) * size)
+        self._spi.write(self._RAM_WRITE, data if len(data) else None)
         return None
 
 
@@ -399,8 +397,8 @@ class LcdWrapper:
         return color565(*struct.unpack(self._DECODE_PIXEL, data))
 
     def pixel(
-        self, x: int, y: int, color: Union[int, Tuple] | None = None
-    ) -> int | None:
+        self, x: int, y: int, color: Optional[Union[int, Tuple]] = None
+    ) -> Optional[int]:
         """Read or write a pixel at a given position."""
         if color is None:
             return self._decode_pixel(self._block(x, y, x, y))  # type: ignore[arg-type]
@@ -412,7 +410,7 @@ class LcdWrapper:
     def image(
         self,
         img: Image,
-        rotation: int | None = None,
+        rotation: Optional[int] = None,
         x: int = 0,
         y: int = 0,
     ) -> None:
@@ -431,17 +429,26 @@ class LcdWrapper:
         if x + imwidth > self.width or y + imheight > self.height:
             raise ValueError(f"Image must not exceed dimensions of display ({self.width}x{self.height}).")
         pixels = bytes(image_to_data(img))
-        self._block(x, y, x + imwidth - 1, y + imheight - 1, pixels)
+        self._block(x, y, x + imwidth - 1, y + imheight - 1, "")
+        
+        chunks, rest = divmod(len(pixels), self._BUFFER_SIZE)
+        self._logger.info(f"block chunks={chunks}, rest={rest}")
+        if chunks:
+            for c in range(chunks):
+                self._spi.write(None, pixels[c * self._BUFFER_SIZE: (c + 1) * self._BUFFER_SIZE])
+        if rest:
+            self._spi.write(None, pixels[chunks * self._BUFFER_SIZE:])
+
     
     def draw_text(self,
         text: str,
         text_size: int,
         image_size: Tuple[int],
-        pos: Tuple[int],
+        pos: Tuple[int, int],
         font_color: int,
         bg_color: int
         ) -> None:
-        '''Draws text on screen'''
+        '''Draws text on screen. Front and bg are 16-bit 565RBG colors.'''
         self.image(get_text_image(text, text_size, image_size, color_int_to_tuple(font_color), color_int_to_tuple(bg_color)), None, pos[0], pos[1])
 
 

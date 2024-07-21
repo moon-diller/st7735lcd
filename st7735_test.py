@@ -73,7 +73,7 @@ class TextLabel(RectWidget):
     @text.setter
     def text(self, value):
         self._text = value
-        self._need_redraw = True
+        self.need_redraw = True
 
 
 import termios, fcntl, sys, os
@@ -87,11 +87,13 @@ class SnakeWidget(RectWidget):
     width: int,
     height: int,
     bg_color: int,
+    snake_color: int
     ):
         super().__init__(lcd, parent, relx, rely, width, height, bg_color)
         self.dxdy = (1, 0)
         self.posx = (self.x0 + self.x1) // 2
         self.posy = (self.y0 + self.y1) // 2
+        self._snake_color = snake_color
 
         # init pos
         cur_len = 3
@@ -100,7 +102,7 @@ class SnakeWidget(RectWidget):
         self.snake = []
         for i in range(cur_len):
             self.snake.append((self.posx - i, self.posy))
-            self._lcd.pixel(self.posx - i, self.posy, color=self._lcd._COLOR_MAGENTA)
+            self._lcd.pixel(self.posx - i, self.posy, color=self._snake_color)
 
         self.head = cur_len - 1
         self.tail = 0
@@ -137,7 +139,7 @@ class SnakeWidget(RectWidget):
 
         # color new head
         head_pixel_coord = self._rel_to_abs_point(self.snake[self.head][0], self.snake[self.head][1])
-        self._lcd.pixel(head_pixel_coord[0], head_pixel_coord[1], color=self._lcd._COLOR_MAGENTA)
+        self._lcd.pixel(head_pixel_coord[0], head_pixel_coord[1], color=self._snake_color)
     
     def _rel_to_abs_point(self, relx, rely):
         return relx + self.x0, rely + self.y0
@@ -172,7 +174,7 @@ if __name__ == "__main__":
     import spidev
     
     GPIO.setmode(GPIO.BCM)
-    status_led = st7735lcd.PinWrapper(26)
+    status_led = st7735lcd.OutPinWrapper(26)
 
     try: 
         status_led.value = 1
@@ -180,9 +182,9 @@ if __name__ == "__main__":
         spi_dev = spidev.SpiDev()
         spi_dev.open(bus=0, device=0)
         spi_dev.max_speed_hz = 1000000
-        dc_pin = st7735lcd.PinWrapper(25)
-        rst_pin = st7735lcd.PinWrapper(24)
-        spi_logger = st7735lcd.Logger("spi", verbosity=st7735lcd.Logger.Verbosity.MED)
+        dc_pin = st7735lcd.OutPinWrapper(25)
+        rst_pin = st7735lcd.OutPinWrapper(24)
+        spi_logger = st7735lcd.Logger("spi", verbosity=st7735lcd.Logger.Verbosity.MIN)
         spi = st7735lcd.SpiWrapper(spi_dev, dc_pin, rst_pin, logger=spi_logger)
 
         lcd = st7735lcd.LcdWrapper(spi, 128, 160, rotation=180, logger=st7735lcd.Logger("lcd"))
@@ -193,30 +195,44 @@ if __name__ == "__main__":
         time.sleep(0.5)
         status_led.value = 1
 
-        lcd.fill(color=lcd._COLOR_BLACK)        
-        lcd.image(st7735lcd.get_text_image("Hello, World!", 10, image_size=(115, 15)), None, 10, 15)
+        lcd.fill(color=lcd.COLOR_BLACK)
+
+        colors = {
+            "pink" : 0xe86c,
+            "yellow" : 0xffa1,
+            "red" : 0xf800,
+            "cyan" : 0x0f5f,
+            "blue" : 0x001f,
+            "green" : 0x07e0,
+            "orange" : 0xfbe1,
+            }
+
+        for name, color in colors.items():
+            print(f"Color:{color:x} ({color})")
+            lcd.fill(color=color)
+            lcd.image(st7735lcd.get_text_image(name, 10, image_size=(85, 15)), None, 22, 15)
+            lcd.draw_text("Hello\nWorld!", 25, image_size=(85, 60), pos=(21, 50), font_color=color, bg_color=lcd.COLOR_BLACK)
+            time.sleep(1)
+
         status_led.value = 0
         
-        time.sleep(0.2)
-        res = spi.read(st7735lcd.LcdWrapper._RDDID, 4)
-        spi.write(st7735lcd.LcdWrapper._NOP, None)
-        print("Display ID:", res)
+        lcd.fill(color=lcd.COLOR_BLACK)
+        dev_id = lcd.dev_id()
+        print("Display ID: {dev_id:x}")
+        lcd.draw_text(f"Display ID:\n{dev_id:x}", 15, image_size=(90, 60), pos=(19, 50), font_color=lcd.COLOR_WHITE, bg_color=lcd.COLOR_BLACK)
+        time.sleep(2)
 
-        main_widget = RectWidget(lcd, None, 0, 0, lcd.width, lcd.height, lcd._COLOR_BLACK)
-        date_widget = TextLabel(lcd, main_widget, 0, 0, lcd.width, 10, font_color=0xFFFFFF, bg_color=lcd._COLOR_GREEN)
-        text_widget = TextLabel(lcd, main_widget, 0, 150, lcd.width, 10, font_color=0xFFFFFF, bg_color=lcd._COLOR_GREEN, text="Hello, world!")
-        snake_widget = SnakeWidget(lcd, main_widget, 0, 10, lcd.width, 140, bg_color=lcd._COLOR_BLACK)
+        main_widget = RectWidget(lcd, None, 0, 0, lcd.width, lcd.height, lcd.COLOR_BLACK)
+        date_widget = TextLabel(lcd, main_widget, 0, 0, lcd.width, 10, font_color=lcd.COLOR_WHITE, bg_color=lcd.COLOR_BLUE)
+        text_widget = TextLabel(lcd, main_widget, 0, 150, lcd.width, 10, font_color=lcd.COLOR_WHITE, bg_color=lcd.COLOR_BLUE, text="Hello, world!")
+        snake_widget = SnakeWidget(lcd, main_widget, 0, 10, lcd.width, 140, bg_color=lcd.COLOR_BLACK, snake_color=lcd.COLOR_MAGENTA)
         
         while True:
             date_widget.text = time.ctime()
-            snake_widget._need_redraw = True
+            snake_widget.need_redraw = True
             main_widget.draw()
-            time.sleep(0.05)
+            time.sleep(0.02)
 
-
-        status_led.value = 0
-        spi_dev.close()
-        GPIO.cleanup()
     finally:
         print("Releasing resources...")
         status_led.value = 0
