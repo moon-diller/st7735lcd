@@ -38,11 +38,11 @@ class Logger:
 
     def warning(self, *args, **kwargs) -> None:
         '''Logging a warning message'''
-        raise RuntimeError("Not implemented")
+        raise NotImplementedError("Please Implement this method")
     
     def fatal(self, *args, **kwargs) -> None:
         '''Logging a fatal message'''
-        raise RuntimeError("Not implemented")
+        raise NotImplementedError("Please Implement this method")
 
 
 class OutPinWrapper:
@@ -63,22 +63,11 @@ class OutPinWrapper:
         GPIO.output(self._pin_id, GPIO.HIGH if self._value else GPIO.LOW)
 
 
-class SpiWrapper:
-    def __init__(self, spi_device, dc_pin: OutPinWrapper, rst_pin: OutPinWrapper, logger: Logger):
+class SpiDriver:
+    def __init__(self, spi_device, dc_pin: OutPinWrapper, logger: Logger):
         self._spi_device = spi_device
         self._dc_pin = dc_pin
-        self._rst_pin = rst_pin
         self._logger = logger
-        self.reset()
-
-    def reset(self) -> None:
-        """Reset the device"""
-        if not self._rst_pin:
-            raise RuntimeError("Reset pin was not provided")
-        self._rst_pin.value = 0
-        time.sleep(0.050)  # 50 milliseconds
-        self._rst_pin.value = 1
-        time.sleep(0.050)  # 50 milliseconds
 
     def write(
         self, command: Optional[int] = None, data: Optional[ByteString] = None
@@ -165,8 +154,7 @@ def get_text_image(
     return out
 
 
-
-class LcdWrapper:
+class LcdDisplay:
     _NOP = 0x00
     _SWRESET = 0x01
     _RDDID = 0x04
@@ -238,8 +226,9 @@ class LcdWrapper:
     COLOR_YELLOW = 0xFFE0  # 0b 11111 111111 00000
     COLOR_WHITE = 0xFFFF  # 0b 11111 111111 11111
 
-    def __init__(self, spi: SpiWrapper, width: int, height: int, rotation: int, logger: Logger) -> None:
+    def __init__(self, spi: SpiDriver, rst_pin: OutPinWrapper, width: int, height: int, rotation: int, logger: Logger) -> None:
         self._spi = spi
+        self._rst_pin = rst_pin
         self.width = width
         self.height = height
         self.rotation = rotation
@@ -247,78 +236,98 @@ class LcdWrapper:
         self._invert = False
         self._offset_left = 0
         self._offset_top = 0
-        self.init()
+ 
+    def reset(self) -> None:
+        """Reset the device"""
+        if not self._rst_pin:
+            raise RuntimeError("Reset pin was not provided")
+        self._rst_pin.value = 0
+        time.sleep(0.050)  # 50 milliseconds
+        self._rst_pin.value = 1
+        time.sleep(0.050)  # 50 milliseconds
+
+    def write(
+        self, command: Optional[int] = None, data: Optional[ByteString] = None
+    ) -> None:
+        """SPI write to the device: commands and data. Arg data should be either None or non-empty byte string"""
+        self._spi.write(command, data)
+    
+    def read(self, command: Optional[int] = None, count: int = 0) -> ByteString:
+        """SPI read from device with optional command"""
+        return self._spi.read(command, count)
 
     def init(self) -> None:
         """Run the initialization commands."""
-        self._spi.write(command=self._SWRESET)    # Software reset
+        self.reset()
+        time.sleep(0.500)                         # delay 500 ms
+        self.write(command=self._SWRESET)    # Software reset
         time.sleep(0.150)                         # delay 150 ms
 
-        self._spi.write(command=self._SLPOUT)     # Out of sleep mode
+        self.write(command=self._SLPOUT)     # Out of sleep mode
         time.sleep(0.500)                         # delay 500 ms
 
         # Frame rate ctrl - normal mode
         # Rate = fosc/(1x2+40) * (LINE+2C+2D)
-        self._spi.write(command=self._FRMCTR1, data=b"\x01\x2C\x2D")
+        self.write(command=self._FRMCTR1, data=b"\x01\x2C\x2D")
 
         # Frame rate ctrl - idle mode
         # Rate = fosc/(1x2+40) * (LINE+2C+2D)
-        self._spi.write(command=self._FRMCTR2, data=b"\x01\x2C\x2D")    
+        self.write(command=self._FRMCTR2, data=b"\x01\x2C\x2D")    
 
-        self._spi.write(command=self._FRMCTR3)    # Frame rate ctrl - partial mode
-        self._spi.write(data=b"\x01\x2C\x2D")     # Dot inversion mode
-        self._spi.write(data=b"\x01\x2C\x2D")     # Line inversion mode
+        self.write(command=self._FRMCTR3)    # Frame rate ctrl - partial mode
+        self.write(data=b"\x01\x2C\x2D")     # Dot inversion mode
+        self.write(data=b"\x01\x2C\x2D")     # Line inversion mode
 
-        self._spi.write(command=self._INVCTR)     # Display inversion ctrl
-        self._spi.write(data=b"\x07")             # No inversion
+        self.write(command=self._INVCTR)     # Display inversion ctrl
+        self.write(data=b"\x07")             # No inversion
 
-        self._spi.write(command=self._PWCTR1)     # Power control
-        self._spi.write(data=b"\xA2\x02\x84")     # -4.6V, auto mode
+        self.write(command=self._PWCTR1)     # Power control
+        self.write(data=b"\xA2\x02\x84")     # -4.6V, auto mode
 
-        self._spi.write(command=self._PWCTR2)     # Power control
-        self._spi.write(data=b"\x0A\x00")         # Opamp current small, Boost frequency
+        self.write(command=self._PWCTR2)     # Power control
+        self.write(data=b"\x0A\x00")         # Opamp current small, Boost frequency
 
-        self._spi.write(command=self._PWCTR4)     # Power control
-        self._spi.write(data=b"\x8A\x2A")         # BCLK/2, Opamp current small & Medium low
+        self.write(command=self._PWCTR4)     # Power control
+        self.write(data=b"\x8A\x2A")         # BCLK/2, Opamp current small & Medium low
 
-        self._spi.write(command=self._PWCTR5)     # Power control
-        self._spi.write(data=b"\x8A\xEE")
+        self.write(command=self._PWCTR5)     # Power control
+        self.write(data=b"\x8A\xEE")
 
-        self._spi.write(command=self._VMCTR1)     # Power control
-        self._spi.write(data=b"\x0E")
+        self.write(command=self._VMCTR1)     # Power control
+        self.write(data=b"\x0E")
 
         if self._invert:
-            self._spi.write(command=self._INVON)   # Invert display
+            self.write(command=self._INVON)   # Invert display
         else:
-            self._spi.write(command=self._INVOFF)  # Don't invert display
+            self.write(command=self._INVOFF)  # Don't invert display
 
-        self._spi.write(command=self._MADCTL)     # Memory access control (directions)
-        self._spi.write(data=b"\xC0")             # row addr/col addr, bottom to top refresh; Set D3 RGB Bit to 0 for format RGB
+        self.write(command=self._MADCTL)     # Memory access control (directions)
+        self.write(data=b"\xC0")             # row addr/col addr, bottom to top refresh; Set D3 RGB Bit to 0 for format RGB
 
-        self._spi.write(command=self._COLMOD)     # set color mode
-        self._spi.write(data=b"\x05")                 # 16-bit color
+        self.write(command=self._COLMOD)     # set color mode
+        self.write(data=b"\x05")                 # 16-bit color
 
-        self._spi.write(command=self._CASET)      # Column addr set
-        self._spi.write(data=b"\x00")                 # XSTART = 0
-        self._spi.write(data=str(self._offset_left).encode())
-        self._spi.write(data=b"\x00")                 # XEND = ROWS - height
-        self._spi.write(data=str(self.width + self._offset_left - 1).encode())
+        self.write(command=self._CASET)      # Column addr set
+        self.write(data=b"\x00")                 # XSTART = 0
+        self.write(data=str(self._offset_left).encode())
+        self.write(data=b"\x00")                 # XEND = ROWS - height
+        self.write(data=str(self.width + self._offset_left - 1).encode())
 
-        self._spi.write(command=self._RASET)      # Row addr set
-        self._spi.write(data=b"\x00")                 # XSTART = 0
-        self._spi.write(data=str(self._offset_top).encode())
-        self._spi.write(data=b"\x00")                 # XEND = COLS - width
-        self._spi.write(data=str(self.height + self._offset_top - 1).encode())
+        self.write(command=self._RASET)      # Row addr set
+        self.write(data=b"\x00")                 # XSTART = 0
+        self.write(data=str(self._offset_top).encode())
+        self.write(data=b"\x00")                 # XEND = COLS - width
+        self.write(data=str(self.height + self._offset_top - 1).encode())
 
-        self._spi.write(command=self._GMCTRP1)    # Set Gamma
-        self._spi.write(data=b"\x02\x1c\x07\x12\x37\x32\x29\x2d")
-        self._spi.write(data=b"\x29\x25\x2B\x39\x00\x01\x03\x10")
+        self.write(command=self._GMCTRP1)    # Set Gamma
+        self.write(data=b"\x02\x1c\x07\x12\x37\x32\x29\x2d")
+        self.write(data=b"\x29\x25\x2B\x39\x00\x01\x03\x10")
 
-        self._spi.write(command=self._GMCTRN1)    # Set Gamma
-        self._spi.write(data=b"\x03\x1d\x07\x06\x2E\x2C\x29\x2D")
-        self._spi.write(data=b"\x2E\x2E\x37\x3F\x00\x00\x02\x10")
+        self.write(command=self._GMCTRN1)    # Set Gamma
+        self.write(data=b"\x03\x1d\x07\x06\x2E\x2C\x29\x2D")
+        self.write(data=b"\x2E\x2E\x37\x3F\x00\x00\x02\x10")
 
-        self._spi.write(command=self._NORON)      # Normal display on
+        self.write(command=self._NORON)      # Normal display on
         time.sleep(0.1)
 
         self.display_on()
@@ -327,19 +336,19 @@ class LcdWrapper:
         self._logger.info("initialized", verbosity=Logger.Verbosity.MED)
 
     def display_off(self):
-        self._spi.write(command=self._DISPOFF)
+        self.write(command=self._DISPOFF)
 
     def display_on(self):
-        self._spi.write(command=self._DISPON)
+        self.write(command=self._DISPON)
 
     def sleep(self):
-        self._spi.write(command=self._SLPIN)
+        self.write(command=self._SLPIN)
 
     def wake(self):
-        self._spi.write(command=self._SLPOUT)
+        self.write(command=self._SLPOUT)
 
     def dev_id(self) -> int:
-        devid_bytes = self._spi.read(self._RDDID, 4)
+        devid_bytes = self.read(self._RDDID, 4)
         return struct.unpack(">I", devid_bytes)[0]
 
     def fill_rectangle(
@@ -359,9 +368,9 @@ class LcdWrapper:
         if chunks:
             data = pixel * self._BUFFER_SIZE
             for _ in range(chunks):
-                self._spi.write(None, data)
+                self.write(None, data)
         if rest:
-            self._spi.write(None, pixel * rest)
+            self.write(None, pixel * rest)
 
     def fill(self, color: Union[int, Tuple] = 0) -> None:
         """Fill the whole display with the specified color."""
@@ -371,18 +380,17 @@ class LcdWrapper:
         self, x0: int, y0: int, x1: int, y1: int, data: Optional[ByteString] = None
     ) -> Optional[ByteString]:
         """Read or write a block of data."""
-        self._spi.write(
+        self.write(
             self._COLUMN_SET, self._encode_pos(x0 + self._X_START, x1 + self._X_START)
         )
-        self._spi.write(
+        self.write(
             self._PAGE_SET, self._encode_pos(y0 + self._Y_START, y1 + self._Y_START)
         )
         if data is None:
             size = struct.calcsize(self._DECODE_PIXEL)
-            return self._spi.read(self._RAM_READ, (x1 - x0 + 1) * (y1 - y0 + 1) * size)
-        self._spi.write(self._RAM_WRITE, data if len(data) else None)
+            return self.read(self._RAM_READ, (x1 - x0 + 1) * (y1 - y0 + 1) * size)
+        self.write(self._RAM_WRITE, data if len(data) else None)
         return None
-
 
     def _encode_pos(self, x: int, y: int) -> bytes:
         """Encode a position into bytes."""
@@ -435,10 +443,9 @@ class LcdWrapper:
         self._logger.info(f"block chunks={chunks}, rest={rest}")
         if chunks:
             for c in range(chunks):
-                self._spi.write(None, pixels[c * self._BUFFER_SIZE: (c + 1) * self._BUFFER_SIZE])
+                self.write(None, pixels[c * self._BUFFER_SIZE: (c + 1) * self._BUFFER_SIZE])
         if rest:
-            self._spi.write(None, pixels[chunks * self._BUFFER_SIZE:])
-
+            self.write(None, pixels[chunks * self._BUFFER_SIZE:])
     
     def draw_text(self,
         text: str,

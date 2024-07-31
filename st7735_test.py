@@ -3,10 +3,66 @@ import st7735lcd
 from typing import Tuple
 import RPi.GPIO as GPIO
 import time
+from enum import Enum
+from typing import Optional, Tuple, ByteString
+
+from threading import Thread, Event, Lock
+import queue
+from st7735lcd import LcdDisplay, SpiDriver, OutPinWrapper, Logger
+
+class LcdAsyncTransactor(LcdDisplay):
+    class TransactionType(Enum):
+        READ = 0
+        WRITE = 1
+
+    _TRANSACTION_TIMEOUT_SEC = 60
+
+    def __init__(self, spi: SpiDriver, rst_pin: OutPinWrapper, width: int, height: int, rotation: int, logger: Logger) -> None:
+        super().__init__(spi, rst_pin, width, height, rotation, logger)
+        self._transactions_queue = queue.SimpleQueue()
+        self._read_mutex = Lock()
+        self._write_mutex = Lock()
+        self._read_event = Event()
+        self._read_data = b""
+        self._thread = None
+        self._run()
+    
+    def write(
+        self, command: Optional[int] = None, data: Optional[ByteString] = None
+    ) -> None:
+        """SPI write to the device: commands and data. Arg data should be either None or non-empty byte string. Non-blocking func"""
+        with self._write_mutex:
+            self._transactions_queue.put((LcdAsyncTransactor.TransactionType.WRITE, command, data))
+
+    def read(self, command: Optional[int] = None, count: int = 0) -> ByteString:
+        """SPI read from device with optional command. Blocking func"""
+        with self._read_mutex:
+            self._read_data = b""
+            self._read_event.clear()
+            self._transactions_queue.put((LcdAsyncTransactor.TransactionType.READ, command, count))
+            self._read_event.wait(timeout=self._TRANSACTION_TIMEOUT_SEC)
+            return self._read_data
+    
+    def _transactions_thread(self):
+        '''Aux method'''
+        while True:
+            transaction, arg1, arg2 = self._transactions_queue.get(block=True)
+            if transaction is LcdAsyncTransactor.TransactionType.READ:
+                self._read_data = super(LcdAsyncTransactor, self).read(arg1, arg2)
+                self._read_event.set()
+            else:
+                super(LcdAsyncTransactor, self).write(arg1, arg2)
+
+    def _run(self):
+        '''Transactions handle thread'''
+        self._thread = Thread(target=self._transactions_thread, daemon=True)
+        self._thread.start()
+
+
 
 class RectWidget:
     def __init__(self,
-        lcd: st7735lcd.LcdWrapper,
+        lcd: LcdDisplay,
         parent: "RectWidget | None",
         relx: int,
         rely: int,
@@ -46,7 +102,7 @@ class RectWidget:
 class TextLabel(RectWidget):
     def __init__(
     self,
-    lcd: st7735lcd.LcdWrapper,
+    lcd: LcdDisplay,
     parent: RectWidget,
     relx: int,
     rely: int,
@@ -80,7 +136,7 @@ import termios, fcntl, sys, os
 class SnakeWidget(RectWidget):
     def __init__(
     self,
-    lcd: st7735lcd.LcdWrapper,
+    lcd: LcdDisplay,
     parent: RectWidget,
     relx: int,
     rely: int,
@@ -174,7 +230,7 @@ if __name__ == "__main__":
     import spidev
     
     GPIO.setmode(GPIO.BCM)
-    status_led = st7735lcd.OutPinWrapper(26)
+    status_led = OutPinWrapper(26)
 
     try: 
         status_led.value = 1
@@ -182,12 +238,15 @@ if __name__ == "__main__":
         spi_dev = spidev.SpiDev()
         spi_dev.open(bus=0, device=0)
         spi_dev.max_speed_hz = 1000000
-        dc_pin = st7735lcd.OutPinWrapper(25)
-        rst_pin = st7735lcd.OutPinWrapper(24)
-        spi_logger = st7735lcd.Logger("spi", verbosity=st7735lcd.Logger.Verbosity.MIN)
-        spi = st7735lcd.SpiWrapper(spi_dev, dc_pin, rst_pin, logger=spi_logger)
+        dc_pin = OutPinWrapper(25)
+        rst_pin = OutPinWrapper(24)
+        spi_logger = Logger("spi", verbosity=Logger.Verbosity.MIN)
+        spi = SpiDriver(spi_dev, dc_pin, logger=spi_logger)
+        LcdDisplay(spi, rst_pin, 128, 160, rotation=180, logger=Logger("lcd"))
+        # lcd = LcdAsyncTransactor(spi, rst_pin, 128, 160, rotation=180, logger=Logger("lcd"))
+        lcd = LcdDisplay(spi, rst_pin, 128, 160, rotation=180, logger=Logger("lcd"))
 
-        lcd = st7735lcd.LcdWrapper(spi, 128, 160, rotation=180, logger=st7735lcd.Logger("lcd"))
+        lcd.init()
 
         time.sleep(1)
         status_led.value = 0
