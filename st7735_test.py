@@ -91,9 +91,12 @@ class RectWidget:
     def draw(self):
         if self.need_redraw:
             self._lcd.fill_rectangle(self.x0, self.y0, self.x1, self.y1, self.color)
-            self.need_redraw = False
+
+    def draw_recursive(self):
+        self.draw()
+        self.need_redraw = False
         for child in self._children:
-            child.draw()
+            child.draw_recursive()
 
     def bbox(self) -> Tuple[int]:
         return (self.x0, self.y0, self.x1, self.y1)
@@ -289,7 +292,7 @@ if __name__ == "__main__":
         while True:
             date_widget.text = time.ctime()
             snake_widget.need_redraw = True
-            main_widget.draw()
+            main_widget.draw_recursive()
             time.sleep(0.02)
 
     finally:
