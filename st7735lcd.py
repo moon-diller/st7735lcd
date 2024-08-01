@@ -142,6 +142,7 @@ def get_text_image(
     text:str, 
     text_size:int, 
     image_size:Tuple[int, int], 
+    text_offset: Tuple[int, int] = (0, 0),
     font_color: Tuple[int, int, int] = (255, 255, 255),
     bg_color: Tuple[int, int, int] = (0, 0, 0)
     ) -> Image:
@@ -155,7 +156,7 @@ def get_text_image(
     d = ImageDraw.Draw(out)
 
     # draw multiline text
-    d.multiline_text(xy=(0, 0), text=text, font=fnt, fill=font_color)
+    d.multiline_text(xy=text_offset, text=text, font=fnt, fill=font_color, align="center")
     return out
 
 
@@ -457,11 +458,12 @@ class LcdDisplay:
         text_size: int,
         image_size: Tuple[int],
         pos: Tuple[int, int],
-        font_color: int,
-        bg_color: int
+        text_offset: Tuple[int, int] = (0, 0),
+        font_color: int = color_int_to_tuple(COLOR_WHITE),
+        bg_color: int = color_int_to_tuple(COLOR_BLACK)
         ) -> None:
         '''Draws text on screen. Front and bg are 16-bit 565RBG colors.'''
-        self.image(get_text_image(text, text_size, image_size, color_int_to_tuple(font_color), color_int_to_tuple(bg_color)), None, pos[0], pos[1])
+        self.image(get_text_image(text, text_size, image_size, text_offset, color_int_to_tuple(font_color), color_int_to_tuple(bg_color)), None, pos[0], pos[1])
 
 
 
