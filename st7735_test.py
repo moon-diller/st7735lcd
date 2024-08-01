@@ -244,11 +244,10 @@ if __name__ == "__main__":
         spi_dev.max_speed_hz = 1000000
         dc_pin = OutPinWrapper(25)
         rst_pin = OutPinWrapper(24)
-        spi_logger = Logger("spi", verbosity=Logger.Verbosity.MIN)
+        spi_logger = Logger("spi", verbosity=Logger.Verbosity.MAX)
         spi = SpiDriver(spi_dev, dc_pin, logger=spi_logger)
-        LcdDisplay(spi, rst_pin, 128, 160, rotation=180, logger=Logger("lcd"))
         # lcd = LcdAsyncTransactor(spi, rst_pin, 128, 160, rotation=180, logger=Logger("lcd"))
-        lcd = LcdDisplay(spi, rst_pin, 128, 160, rotation=180, logger=Logger("lcd"))
+        lcd = LcdDisplay(spi, rst_pin, 128, 160, rotation=180, logger=Logger("lcd", verbosity=Logger.Verbosity.MAX))
 
         lcd.init()
 
@@ -281,7 +280,7 @@ if __name__ == "__main__":
         
         lcd.fill(color=lcd.COLOR_BLACK)
         dev_id = lcd.dev_id()
-        print("Display ID: {dev_id:x}")
+        print(f"Display ID: {dev_id:x}")
         lcd.draw_text(f"Display ID:\n{dev_id:x}", 15, image_size=(90, 60), pos=(19, 50), font_color=lcd.COLOR_WHITE, bg_color=lcd.COLOR_BLACK)
         time.sleep(2)
 

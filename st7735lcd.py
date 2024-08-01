@@ -8,12 +8,14 @@ from enum import Enum
 
 
 class Logger:
+    '''Logger with verbosity control'''
     class Verbosity(Enum):
         MIN = 1
         MED = 2
         MAX = 3
 
-    def __init__(self, prefix: str, verbosity: "Logger.Verbosity" = Verbosity.MIN) -> None:
+    def __init__(self, prefix: str, verbosity: "Logger.Verbosity" = Verbosity.MAX) -> None:
+        '''Verbosity controls amount of messages to be printed. Higher verbosity => more messages.'''
         self._verbosity = verbosity
         self._prefix = prefix
     
@@ -28,9 +30,10 @@ class Logger:
         self._verbosity = verbosity
 
     def info(self, *args, **kwargs) -> None:
-        '''Logging an info message taking into account provided verbosity level'''
-        message_verbosity = kwargs.pop('verbosity', Logger.Verbosity.MIN)
-        if message_verbosity.value >= self._verbosity.value:
+        '''Logging an info message. Minumum message verbosity => message is always printed.
+        Default message verbosity is MAX to limit amount of messages.'''
+        message_verbosity = kwargs.pop('verbosity', Logger.Verbosity.MAX)
+        if message_verbosity.value <= self._verbosity.value:
             if kwargs.pop('no_prefix', False):
                 print(*args, **kwargs)
             else:
@@ -46,6 +49,7 @@ class Logger:
 
 
 class OutPinWrapper:
+    '''Output GPIO pin'''
     def __init__(self, pin_id, value=0):
         self._pin_id = pin_id
         self._mode = GPIO.OUT
@@ -64,6 +68,7 @@ class OutPinWrapper:
 
 
 class SpiDriver:
+    '''SPI interface with D/C pin driver'''
     def __init__(self, spi_device, dc_pin: OutPinWrapper, logger: Logger):
         self._spi_device = spi_device
         self._dc_pin = dc_pin
