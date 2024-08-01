@@ -89,12 +89,13 @@ class RectWidget:
         self._children.append(child)
     
     def draw(self):
-        if self.need_redraw:
-            self._lcd.fill_rectangle(self.x0, self.y0, self.x1, self.y1, self.color)
+        self._lcd.fill_rectangle(self.x0, self.y0, self.x1, self.y1, self.color)
+        self.need_redraw = False
 
     def draw_recursive(self):
-        self.draw()
-        self.need_redraw = False
+        # redraw only necessary items
+        if self.need_redraw:
+            self.draw()
         for child in self._children:
             child.draw_recursive()
 
@@ -123,6 +124,7 @@ class TextLabel(RectWidget):
         image_size = (self.x1 - self.x0, self.y1 - self.y0)
         text_size = image_size[1] - 1
         self._lcd.draw_text(self.text, text_size, image_size, (self.x0, self.y0), self._font_color, self.color)
+        self.need_redraw = False
     
     @property
     def text(self) -> str:
@@ -203,7 +205,6 @@ class SnakeWidget(RectWidget):
     def _rel_to_abs_point(self, relx, rely):
         return relx + self.x0, rely + self.y0
             
-    
     def _getkey(self):
         fd = sys.stdin.fileno()
 
@@ -291,7 +292,6 @@ if __name__ == "__main__":
         
         while True:
             date_widget.text = time.ctime()
-            snake_widget.need_redraw = True
             main_widget.draw_recursive()
             time.sleep(0.02)
 
