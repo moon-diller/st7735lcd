@@ -1,14 +1,15 @@
-import st7735lcd
-
-from typing import Tuple
-import RPi.GPIO as GPIO
-import time
 from enum import Enum
 from typing import Optional, Tuple, ByteString
 
+import time
+
+import RPi.GPIO as GPIO
+import spidev
+
+from st7735lcd import LcdDisplay, SpiDriver, OutPinWrapper, Logger, get_text_image
+
 from threading import Thread, Event, Lock
-import queue
-from st7735lcd import LcdDisplay, SpiDriver, OutPinWrapper, Logger
+from queue import SimpleQueue
 
 class LcdAsyncTransactor(LcdDisplay):
     class TransactionType(Enum):
@@ -19,7 +20,7 @@ class LcdAsyncTransactor(LcdDisplay):
 
     def __init__(self, spi: SpiDriver, rst_pin: OutPinWrapper, width: int, height: int, rotation: int, logger: Logger) -> None:
         super().__init__(spi, rst_pin, width, height, rotation, logger)
-        self._transactions_queue = queue.SimpleQueue()
+        self._transactions_queue = SimpleQueue()
         self._read_mutex = Lock()
         self._write_mutex = Lock()
         self._read_event = Event()
@@ -230,8 +231,6 @@ class SnakeWidget(RectWidget):
 
 
 if __name__ == "__main__":
-    import time
-    import spidev
     
     GPIO.setmode(GPIO.BCM)
     status_led = OutPinWrapper(26)
@@ -272,7 +271,7 @@ if __name__ == "__main__":
         for name, color in colors.items():
             print(f"Color:{color:x} ({color})")
             lcd.fill(color=color)
-            lcd.image(st7735lcd.get_text_image(name, 10, image_size=(85, 15)), None, 22, 15)
+            lcd.image(get_text_image(name, 10, image_size=(85, 15)), None, 22, 15)
             lcd.draw_text("Hello\nWorld!", 25, image_size=(85, 60), pos=(21, 50), font_color=color, bg_color=lcd.COLOR_BLACK)
             time.sleep(1)
 
