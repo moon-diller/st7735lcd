@@ -207,6 +207,7 @@ class SnakeWidget(RectWidget):
         return relx + self.x0, rely + self.y0
             
     def _getkey(self):
+        '''Copied from https://stackoverflow.com/questions/983354/how-do-i-wait-for-a-pressed-key'''
         fd = sys.stdin.fileno()
 
         oldterm = termios.tcgetattr(fd)
