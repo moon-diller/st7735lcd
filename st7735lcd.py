@@ -1,3 +1,9 @@
+# SPDX-FileCopyrightText: 2017 Radomir Dopieralski for Adafruit Industries
+# SPDX-FileCopyrightText: 2023 Matt Land
+# SPDX-FileCopyrightText: 2024 Ivan Lipatov
+#
+# SPDX-License-Identifier: MIT
+
 from typing import Optional, Union, Tuple, List, Any, ByteString
 import struct
 import RPi.GPIO as GPIO
